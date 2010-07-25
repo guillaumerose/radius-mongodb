@@ -1,0 +1,11 @@
+TARGET		= rlm_mongo
+SRCS		= rlm_mongo.c other.c
+HEADERS		= config.h other.h
+RLM_CFLAGS	=
+RLM_LIBS	= 
+
+include ../rules.mak
+
+$(STATIC_OBJS): $(HEADERS)
+
+$(DYNAMIC_OBJS): $(HEADERS)

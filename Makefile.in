@@ -21,8 +21,8 @@
 #
 #######################################################################
 TARGET      = @targetname@
-SRCS        = rlm_mongo.c
-HEADERS     = 
+SRCS        = bson.c gridfs.c md5.c mongo.c numbers.c rlm_mongo.c
+HEADERS     = bson.h config.h gridfs.h md5.h mongo_except.h mongo.h platform_hacks.h
 RLM_CFLAGS  = @mongo_cflags@
 RLM_LIBS    = @mongo_ldflags@
 RLM_INSTALL = install-mongo

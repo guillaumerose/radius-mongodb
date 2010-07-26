@@ -1,5 +1,5 @@
-TARGET		= rlm_mongo
-SRCS		= rlm_mongo.c other.c
+TARGET		= rlm_example
+SRCS		= rlm_example.c other.c
 HEADERS		= config.h other.h
 RLM_CFLAGS	=
 RLM_LIBS	= 

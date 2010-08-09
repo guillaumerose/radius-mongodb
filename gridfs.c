@@ -235,7 +235,7 @@ bson gridfs_store_file(gridfs* gfs, const char* filename,
   /* Open the file and the correct stream */
   if (strcmp(filename, "-") == 0) fd = stdin;
   else fd = fopen(filename, "rb");
-  assert(fd != NULL); // No such file
+  assert(fd != NULL); /* No such file */
 
   /* Generate and append an oid*/
   bson_oid_gen(&id);
@@ -603,30 +603,6 @@ gridfs_offset gridfile_write_file(gridfile* gfile, FILE *stream)
     fwrite( data , sizeof(char), len, stream );
   }
 
-  return gridfile_get_contentlength(gfile);
-}
-
-/*--------------------------------------------------------------------*/
-
-gridfs_offset gridfile_write_buffer(gridfile* gfile, char * buf)
-
-{
-  int i;
-  gridfs_offset len;
-  bson chunk;
-  bson_iterator it;
-  const char* data;
-  const int num = gridfile_get_numchunks( gfile );
- 
-  for ( i = 0; i < num; i++ ){
-    chunk = gridfile_get_chunk( gfile, i );
-    bson_find( &it, &chunk, "data" );
-    len = bson_iterator_bin_len( &it );
-    data = bson_iterator_bin_data( &it );
-    memcpy( buf, data, len);
-    buf += len;
-  }
-  
   return gridfile_get_contentlength(gfile);
 }
  

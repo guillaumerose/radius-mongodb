@@ -139,7 +139,8 @@ static int mongo_connect_helper( mongo_connection * conn ){
     /* nagle */
     setsockopt( conn->sock, IPPROTO_TCP, TCP_NODELAY, (char *) &one, sizeof(one) );
 
-    // Handle disconnect at runtime
+    /* Handle disconnect at runtime */
+
 #ifdef __APPLE__
     setsockopt(conn->sock, SOL_SOCKET, SO_NOSIGPIPE, (char *)&one, sizeof(one));
 #endif
@@ -330,7 +331,7 @@ mongo_reply * mongo_read_response( mongo_connection * conn ){
 
 mongo_cursor* mongo_find(mongo_connection* conn, const char* ns, bson* query, bson* fields, int nToReturn, int nToSkip, int options){
     int sl;
-    volatile mongo_cursor * cursor;
+    volatile mongo_cursor * cursor; /* volatile due to longjmp in mongo exception handler */
     char * data;
     mongo_message * mm = mongo_message_create( 16 + /* header */
                                                4 + /*  options */
@@ -359,7 +360,7 @@ mongo_cursor* mongo_find(mongo_connection* conn, const char* ns, bson* query, bs
     MONGO_TRY{
         cursor->mm = mongo_read_response(conn);
     }MONGO_CATCH{
-      free((mongo_cursor*)cursor);
+        free((mongo_cursor*)cursor); /* cast away volatile, not changing type */
         MONGO_RETHROW();
     }
 
@@ -367,7 +368,7 @@ mongo_cursor* mongo_find(mongo_connection* conn, const char* ns, bson* query, bs
     cursor->ns = bson_malloc(sl);
     if (!cursor->ns){
         free(cursor->mm);
-        free((mongo_cursor*)cursor);
+        free((mongo_cursor*)cursor); /* cast away volatile, not changing type */
         return 0;
     }
     memcpy((void*)cursor->ns, ns, sl); /* cast needed to silence GCC warning */

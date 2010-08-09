@@ -1,0 +1,9 @@
+mongo {
+  port = "27017"
+  ip = "192.168.1.181"
+
+  base = 	"production.users"
+  search_field = "user"
+  username_field = "user" 
+  password_field = "password"
+}

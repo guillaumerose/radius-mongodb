@@ -129,8 +129,8 @@ time_t bson_oid_generated_time(bson_oid_t* oid){
     time_t out;
     bson_big_endian32(&out, &oid->ints[0]);
     return out;
-}
 
+}
 void bson_print( bson * b ){
     bson_print_raw( b->data , 0 );
 }
@@ -213,7 +213,8 @@ bson_type bson_iterator_next( bson_iterator * i ){
     case bson_oid: ds = 12; break;
     case bson_string:
     case bson_symbol:
-    case bson_code: ds = 5 + bson_iterator_int_raw(i); break;
+    case bson_code: ds = 4 + bson_iterator_int_raw(i); break;
+    case bson_bindata: ds = 5 + bson_iterator_int_raw(i); break;
     case bson_object:
     case bson_array:
     case bson_codewscope: ds = bson_iterator_int_raw(i); break;
@@ -523,8 +524,8 @@ bson_buffer * bson_append_code_w_scope( bson_buffer * b , const char * name , co
 }
 
 bson_buffer * bson_append_binary( bson_buffer * b, const char * name, char type, const char * str, int len ){
-    int subtwolen = len + 4;
     if ( type == 2 ){
+        int subtwolen = len + 4;
         if ( ! bson_append_estart( b , bson_bindata , name , 4+1+4+len ) ) return 0;
 	bson_append32(b, &subtwolen);
 	bson_append_byte(b, type);
@@ -575,9 +576,8 @@ bson_buffer * bson_append_element( bson_buffer * b, const char * name_or_null, c
         bson_ensure_space(b, size);
         bson_append(b, elem->cur, size);
     }else{
-        int data_size = size - 1 - strlen(bson_iterator_key(elem));
+        int data_size = size - 2 - strlen(bson_iterator_key(elem));
         bson_append_estart(b, elem->cur[0], name_or_null, data_size);
-        bson_append(b, name_or_null, strlen(name_or_null));
         bson_append(b, bson_iterator_value(elem), data_size);
     }
 

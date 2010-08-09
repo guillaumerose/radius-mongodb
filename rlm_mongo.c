@@ -18,7 +18,7 @@
  *   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  *
  * Copyright 2000,2006  The FreeRADIUS server project
- * Copyright 2000  your name <your address>
+ * Copyright 2010 Guillaume Rose <guillaume.rose@gmail.com>
  */
 
 #include <freeradius-devel/ident.h>
@@ -27,86 +27,143 @@ RCSID("$Id$")
 #include <freeradius-devel/radiusd.h>
 #include <freeradius-devel/modules.h>
 
-/*
- *	Define a structure for our module configuration.
- *
- *	These variables do not need to be in a structure, but it's
- *	a lot cleaner to do so, and a pointer to the structure can
- *	be used as the instance handle.
- */
+#include "mongo.h"
+
+#define MONGO_STRING_LENGTH 8196
+
 typedef struct rlm_mongo_t {
-	int		boolean;
-	int		value;
-	char		*string;
-	uint32_t	ipaddr;
+	char	*ip;
+	int		port;
+	
+	char	*base;
+	char	*search_field;
+	char	*username_field;
+	char	*password_field;
+
 } rlm_mongo_t;
 
-/*
- *	A mapping of configuration file names to internal variables.
- *
- *	Note that the string is dynamically allocated, so it MUST
- *	be freed.  When the configuration file parse re-reads the string,
- *	it free's the old one, and strdup's the new one, placing the pointer
- *	to the strdup'd string into 'config.string'.  This gets around
- *	buffer over-flows.
- */
 static const CONF_PARSER module_config[] = {
-  { "integer", PW_TYPE_INTEGER,    offsetof(rlm_mongo_t,value), NULL,   "1" },
-  { "boolean", PW_TYPE_BOOLEAN,    offsetof(rlm_mongo_t,boolean), NULL, "no"},
-  { "string",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,string), NULL,  NULL},
-  { "ipaddr",  PW_TYPE_IPADDR,     offsetof(rlm_mongo_t,ipaddr), NULL,  "*" },
+  { "port", PW_TYPE_INTEGER,    offsetof(rlm_mongo_t,port), NULL,   "27017" },
+  { "ip",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,ip), NULL,  "127.0.0.1"},
 
+  { "base",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,base), NULL,  ""},
+  { "search_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,search_field), NULL,  ""},
+  { "username_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,username_field), NULL,  ""},
+  { "password_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,password_field), NULL,  ""},
+  
   { NULL, -1, 0, NULL, NULL }		/* end the list */
 };
 
+mongo_connection conn[1];
+mongo_connection_options opts;
 
-/*
- *	Do any per-module initialization that is separate to each
- *	configured instance of the module.  e.g. set up connections
- *	to external databases, read configuration files, set up
- *	dictionary entries, etc.
- *
- *	If configuration information is given in the config section
- *	that must be referenced in later calls, store a handle to it
- *	in *instance otherwise put a null pointer there.
- */
+int mongo_start(rlm_mongo_t *data)
+{
+	strncpy(opts.host, data->ip, 255);
+	opts.host[254] = '\0';
+	opts.port = data->port;
+
+	if (mongo_connect(conn, &opts)){
+	printf("Failed to connect\n");
+	return 0;
+	}
+
+	printf("Connected to MongoDB\n");
+	return 1;
+}
+
+void find_in_array(bson_iterator *it, char *key_ref, char *value_ref, char *key_needed, char *value_needed) 
+{
+	char value_ref_found[MONGO_STRING_LENGTH];
+	char value_needed_found[MONGO_STRING_LENGTH];
+
+	bson_iterator i;
+	
+	while(bson_iterator_next(it)) {
+		switch(bson_iterator_type(it)){
+			case bson_string:
+				if (strcmp(bson_iterator_key(it), key_ref) == 0)
+					strcpy(value_ref_found, bson_iterator_string(it));
+				if (strcmp(bson_iterator_key(it), key_needed) == 0)
+					strcpy(value_needed_found, bson_iterator_string(it));
+				break;
+			case bson_object:
+			case bson_array:
+				bson_iterator_init(&i, bson_iterator_value(it));
+				find_in_array(&i, key_ref, value_ref, key_needed, value_needed);
+				break;
+			default:
+				break;
+		}
+	}
+	
+	if (strcmp(value_ref_found, value_ref) == 0)
+		strcpy(value_needed, value_needed_found);
+}
+
+int find_dhcp_options(rlm_mongo_t *data, char *mac, char *dhcp) 
+{
+	bson_buffer bb;
+	
+	bson query;
+	bson field;
+	bson result;
+	
+	bson_buffer_init(&bb);
+	bson_append_string(&bb, data->search_field, mac);
+	bson_from_buffer(&query, &bb);
+
+	bson_empty(&field);
+
+	bson_empty(&result);
+
+	MONGO_TRY{
+		if (mongo_find_one(conn, data->base, &query, &field, &result) == 0) {
+			return 0;
+		}
+	}MONGO_CATCH{
+		mongo_start(data);
+		return 0;
+	}
+	
+	bson_iterator it;
+	bson_iterator_init(&it, result.data);
+	
+	find_in_array(&it, data->username_field, mac, data->password_field, dhcp);
+	return 1;
+}
+
 static int mongo_instantiate(CONF_SECTION *conf, void **instance)
 {
 	rlm_mongo_t *data;
 
-	/*
-	 *	Set up a storage area for instance data
-	 */
 	data = rad_malloc(sizeof(*data));
 	if (!data) {
 		return -1;
 	}
 	memset(data, 0, sizeof(*data));
 
-	/*
-	 *	If the configuration parameters can't be parsed, then
-	 *	fail.
-	 */
 	if (cf_section_parse(conf, data, module_config) < 0) {
 		free(data);
 		return -1;
 	}
+	
+	mongo_start(data);
 
 	*instance = data;
 
 	return 0;
 }
 
-/*
- *	Find the named user in this modules database.  Create the set
- *	of attribute-value pairs to check and reply with for this user
- *	from the database. The authentication code only needs to check
- *	the password, the rest is done here.
- */
 static int mongo_authorize(void *instance, REQUEST *request)
 {
-	printf("\nAutorisation\n");
-	printf("Username -> %s\n\n", request->username->vp_strvalue);
+	rlm_mongo_t *data = (rlm_mongo_t *) instance;
+	
+	char password[MONGO_STRING_LENGTH] = "";
+	find_dhcp_options(data, request->username->vp_strvalue, password);
+	
+	printf("\nAutorisation request by username : \"%s\"\n", request->username->vp_strvalue);
+	printf("Password found in MongoDB-> \"%s\"\n\n", password);
 	
 	VALUE_PAIR *vp;
 
@@ -114,7 +171,7 @@ static int mongo_authorize(void *instance, REQUEST *request)
 	instance = instance;
 	request = request;
 
- 	vp = pairmake("Cleartext-Password", "testing", T_OP_SET);
+ 	vp = pairmake("Cleartext-Password", password, T_OP_SET);
  	if (!vp) return RLM_MODULE_FAIL;
  	
 	pairmove(&request->config_items, &vp);
@@ -123,25 +180,12 @@ static int mongo_authorize(void *instance, REQUEST *request)
 	return RLM_MODULE_OK;
 }
 
-/*
- *	Only free memory we allocated.  The strings allocated via
- *	cf_section_parse() do not need to be freed.
- */
 static int mongo_detach(void *instance)
 {
 	free(instance);
 	return 0;
 }
 
-/*
- *	The module name should be the only globally exported symbol.
- *	That is, everything else should be 'static'.
- *
- *	If the module needs to temporarily modify it's instantiation
- *	data, the type should be changed to RLM_TYPE_THREAD_UNSAFE.
- *	The server will then take care of ensuring that the module
- *	is single-threaded.
- */
 module_t rlm_mongo = {
 	RLM_MODULE_INIT,
 	"mongo",

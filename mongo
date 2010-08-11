@@ -6,4 +6,10 @@ mongo {
   search_field = "user"
   username_field = "user" 
   password_field = "password"
+  
+  # Check mac address
+  # mac_field = "computers.mac"
+  
+  # Check enable account
+  # enable_field = "activate"
 }

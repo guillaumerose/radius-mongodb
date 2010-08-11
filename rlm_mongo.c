@@ -39,7 +39,8 @@ typedef struct rlm_mongo_t {
 	char	*search_field;
 	char	*username_field;
 	char	*password_field;
-
+	char	*mac_field;
+	char	*enable_field;
 } rlm_mongo_t;
 
 static const CONF_PARSER module_config[] = {
@@ -50,6 +51,8 @@ static const CONF_PARSER module_config[] = {
   { "search_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,search_field), NULL,  ""},
   { "username_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,username_field), NULL,  ""},
   { "password_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,password_field), NULL,  ""},
+  { "mac_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,mac_field), NULL,  ""},
+  { "enable_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,enable_field), NULL,  ""},
   
   { NULL, -1, 0, NULL, NULL }		/* end the list */
 };
@@ -101,7 +104,7 @@ void find_in_array(bson_iterator *it, char *key_ref, char *value_ref, char *key_
 		strcpy(value_needed, value_needed_found);
 }
 
-int find_dhcp_options(rlm_mongo_t *data, char *mac, char *dhcp) 
+int find_radius_options(rlm_mongo_t *data, char *username, char *mac, char *password) 
 {
 	bson_buffer bb;
 	
@@ -110,7 +113,17 @@ int find_dhcp_options(rlm_mongo_t *data, char *mac, char *dhcp)
 	bson result;
 	
 	bson_buffer_init(&bb);
-	bson_append_string(&bb, data->search_field, mac);
+	
+	bson_append_string(&bb, data->search_field, username);
+	
+	if (strcmp(data->mac_field, "") != 0) {
+		bson_append_string(&bb, data->mac_field, mac);
+	}
+	
+	if (strcmp(data->enable_field, "") != 0) {
+		bson_append_int(&bb, data->enable_field, 1);
+	}	
+	
 	bson_from_buffer(&query, &bb);
 
 	bson_empty(&field);
@@ -129,7 +142,7 @@ int find_dhcp_options(rlm_mongo_t *data, char *mac, char *dhcp)
 	bson_iterator it;
 	bson_iterator_init(&it, result.data);
 	
-	find_in_array(&it, data->username_field, mac, data->password_field, dhcp);
+	find_in_array(&it, data->username_field, username, data->password_field, password);
 	return 1;
 }
 
@@ -159,8 +172,14 @@ static int mongo_authorize(void *instance, REQUEST *request)
 {
 	rlm_mongo_t *data = (rlm_mongo_t *) instance;
 	
+	char mac[MONGO_STRING_LENGTH] = "";
+	
+	if (strcmp(data->mac_field, "") != 0) {
+		radius_xlat(mac, MONGO_STRING_LENGTH, "%{Calling-Station-Id}", request, NULL);
+  }
+  
 	char password[MONGO_STRING_LENGTH] = "";
-	find_dhcp_options(data, request->username->vp_strvalue, password);
+	find_radius_options(data, request->username->vp_strvalue, mac, password);
 	
 	printf("\nAutorisation request by username : \"%s\"\n", request->username->vp_strvalue);
 	printf("Password found in MongoDB-> \"%s\"\n\n", password);

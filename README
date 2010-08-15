@@ -18,9 +18,15 @@ mongo {
 	* Add in your site configuration in authorize sub-section "mongo"
 * Run radiusd
 
-TODO :
-Add MongoDB support.
+Note :
+If you use rlm_mongo in inner-tunnel and mac filter, ensure you have this in eap.conf
+copy_request_to_tunnel = yes
 
+Debug :
+Requests can be show in mongodb web interface
+
+Todo :
+Escape strings
 
 (c) Guillaume Rose
 Under the same licence as FreeRADIUS

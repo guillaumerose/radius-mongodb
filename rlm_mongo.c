@@ -121,7 +121,7 @@ int find_radius_options(rlm_mongo_t *data, char *username, char *mac, char *pass
 	}
 	
 	if (strcmp(data->enable_field, "") != 0) {
-		bson_append_int(&bb, data->enable_field, 1);
+		bson_append_bool(&bb, data->enable_field, 1);
 	}	
 	
 	bson_from_buffer(&query, &bb);
@@ -168,21 +168,38 @@ static int mongo_instantiate(CONF_SECTION *conf, void **instance)
 	return 0;
 }
 
+static void format_mac(char *in, char *out) {
+	int i;
+	for (i = 0; i < 6; i++) {
+		out[3 * i] = in[2 * i];
+		out[3 * i + 1] = in[2 * i + 1];
+		out[3 * i + 2] = ':';
+	}
+	out[17] = '\0';
+}
+
 static int mongo_authorize(void *instance, REQUEST *request)
 {
-	rlm_mongo_t *data = (rlm_mongo_t *) instance;
+  if (request->username == NULL)
+  	return RLM_MODULE_NOOP;
+  	
+  rlm_mongo_t *data = (rlm_mongo_t *) instance;
 	
+	char password[MONGO_STRING_LENGTH] = "";
 	char mac[MONGO_STRING_LENGTH] = "";
 	
 	if (strcmp(data->mac_field, "") != 0) {
-		radius_xlat(mac, MONGO_STRING_LENGTH, "%{Calling-Station-Id}", request, NULL);
-  }
-  
-	char password[MONGO_STRING_LENGTH] = "";
-	find_radius_options(data, request->username->vp_strvalue, mac, password);
+		char mac_temp[MONGO_STRING_LENGTH] = "";
+		radius_xlat(mac_temp, MONGO_STRING_LENGTH, "%{Calling-Station-Id}", request, NULL);
+		format_mac(mac_temp, mac);
+  } 
 	
-	printf("\nAutorisation request by username : \"%s\"\n", request->username->vp_strvalue);
-	printf("Password found in MongoDB-> \"%s\"\n\n", password);
+	if (!find_radius_options(data, request->username->vp_strvalue, mac, password)) {
+		return RLM_MODULE_REJECT; 
+	}
+	
+	printf("\nAutorisation request by username -> \"%s\"\n", request->username->vp_strvalue);
+	printf("Password found in MongoDB -> \"%s\"\n\n", password);
 	
 	VALUE_PAIR *vp;
 

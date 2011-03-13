@@ -1,3 +1,5 @@
+EDIT: This will be rewrite with REST api.
+
 MongoDB module for FreeRADIUS (lastest version)
 This is just a simple hack in order to use MongoDB as user database (instead of LDAP).
 Currently just set Cleartext-password (as rlm_files does).

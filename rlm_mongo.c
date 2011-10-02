@@ -58,20 +58,15 @@ static const CONF_PARSER module_config[] = {
 };
 
 mongo_connection conn[1];
-mongo_connection_options opts;
 
 int mongo_start(rlm_mongo_t *data)
 {
-	strncpy(opts.host, data->ip, 255);
-	opts.host[254] = '\0';
-	opts.port = data->port;
-
-	if (mongo_connect(conn, &opts)){
-	printf("Failed to connect\n");
-	return 0;
+	if (mongo_connect(conn, data->ip, data->port)){
+	  radlog(L_ERR, "rlm_mongodb: Failed to connect");
+	  return 0;
 	}
 
-	printf("Connected to MongoDB\n");
+	radlog(L_DBG, "Connected to MongoDB");
 	return 1;
 }
 
@@ -198,8 +193,8 @@ static int mongo_authorize(void *instance, REQUEST *request)
 		return RLM_MODULE_REJECT; 
 	}
 	
-	printf("\nAutorisation request by username -> \"%s\"\n", request->username->vp_strvalue);
-	printf("Password found in MongoDB -> \"%s\"\n\n", password);
+	RDEBUG("Authorisation request by username -> \"%s\"\n", request->username->vp_strvalue);
+	RDEBUG("Password found in MongoDB -> \"%s\"\n\n", password);
 	
 	VALUE_PAIR *vp;
 
@@ -239,5 +234,3 @@ module_t rlm_mongo = {
 		NULL			/* post-auth */
 	},
 };
-
-

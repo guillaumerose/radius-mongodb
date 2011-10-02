@@ -120,6 +120,7 @@ int find_radius_options(rlm_mongo_t *data, char *username, char *mac, char *pass
 	}	
 	
 	bson_from_buffer(&query, &bb);
+	bson_buffer_destroy(&bb);
 
 	bson_empty(&field);
 
@@ -138,6 +139,7 @@ int find_radius_options(rlm_mongo_t *data, char *username, char *mac, char *pass
 	bson_iterator_init(&it, result.data);
 	
 	find_in_array(&it, data->username_field, username, data->password_field, password);
+	bson_destroy(&result);
 	return 1;
 }
 

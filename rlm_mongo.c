@@ -19,6 +19,7 @@
  *
  * Copyright 2000,2006  The FreeRADIUS server project
  * Copyright 2010 Guillaume Rose <guillaume.rose@gmail.com>
+ * Copyright 2011 Roman Shterenzon <romanbsd@yahoo.com>
  */
 
 #include <freeradius-devel/ident.h>
@@ -36,6 +37,7 @@ typedef struct rlm_mongo_t {
 	int		port;
 	
 	char	*base;
+	char	*acct_base;
 	char	*search_field;
 	char	*username_field;
 	char	*password_field;
@@ -48,6 +50,7 @@ static const CONF_PARSER module_config[] = {
   { "ip",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,ip), NULL,  "127.0.0.1"},
 
   { "base",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,base), NULL,  ""},
+  { "acct_base",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,acct_base), NULL,  ""},
   { "search_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,search_field), NULL,  ""},
   { "username_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,username_field), NULL,  ""},
   { "password_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,password_field), NULL,  ""},
@@ -213,6 +216,53 @@ static int mongo_authorize(void *instance, REQUEST *request)
 	return RLM_MODULE_OK;
 }
 
+/* Saves accounting information */
+static int mongo_account(void *instance, REQUEST *request)
+{
+	rlm_mongo_t *data = (rlm_mongo_t *)instance;
+	bson b;
+	bson_buffer buf;
+	const char *attr;
+	char value[MAX_STRING_LEN+1];
+	VALUE_PAIR *vp = request->packet->vps;
+
+	bson_buffer_init(&buf);
+	bson_append_new_oid(&buf, "_id");
+
+	while (vp) {
+		attr = vp->name;
+		switch (vp->type) {
+			case PW_TYPE_INTEGER:
+				bson_append_int(&buf, attr, vp->vp_integer & 0xffffff);
+				break;
+			case PW_TYPE_BYTE:
+			case PW_TYPE_SHORT:
+				bson_append_int(&buf, attr, vp->vp_integer);
+				break;
+			case PW_TYPE_DATE:
+				bson_append_time_t(&buf, attr, vp->vp_date);
+				break;
+			default:
+				vp_prints_value(value, sizeof(value), vp, 0);
+				bson_append_string(&buf, attr, value);
+				break;
+		}
+		vp = vp->next;
+	}
+	bson_from_buffer(&b, &buf);
+
+	MONGO_TRY {
+		mongo_insert(conn, data->acct_base, &b);
+	} MONGO_CATCH {
+		radlog(L_ERR, "mongo_insert failed");
+		return RLM_MODULE_FAIL;
+	}
+	RDEBUG("accounting record was inserted");
+
+	bson_destroy(&b);
+	return RLM_MODULE_OK;
+}
+
 static int mongo_detach(void *instance)
 {
 	free(instance);
@@ -229,7 +279,7 @@ module_t rlm_mongo = {
 		NULL,			/* authentication */
 		mongo_authorize,	/* authorization */
 		NULL,			/* preaccounting */
-		NULL,			/* accounting */
+		mongo_account,		/* accounting */
 		NULL,			/* checksimul */
 		NULL,			/* pre-proxy */
 		NULL,			/* post-proxy */

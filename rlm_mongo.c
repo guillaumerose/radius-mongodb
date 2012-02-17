@@ -46,8 +46,8 @@ typedef struct rlm_mongo_t {
 } rlm_mongo_t;
 
 static const CONF_PARSER module_config[] = {
-  { "port", PW_TYPE_INTEGER,    offsetof(rlm_mongo_t,port), NULL,   "27017" },
-  { "ip",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,ip), NULL,  "127.0.0.1"},
+  { "port", PW_TYPE_INTEGER, offsetof(rlm_mongo_t,port), NULL, "27017" },
+  { "ip",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,ip), NULL, "127.0.0.1"},
 
   { "base",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,base), NULL,  ""},
   { "acct_base",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,acct_base), NULL,  ""},
@@ -60,7 +60,7 @@ static const CONF_PARSER module_config[] = {
   { NULL, -1, 0, NULL, NULL }		/* end the list */
 };
 
-mongo_connection conn[1];
+mongo conn[1];
 
 int mongo_start(rlm_mongo_t *data)
 {
@@ -82,15 +82,15 @@ void find_in_array(bson_iterator *it, char *key_ref, char *value_ref, char *key_
 	
 	while(bson_iterator_next(it)) {
 		switch(bson_iterator_type(it)){
-			case bson_string:
+			case BSON_STRING:
 				if (strcmp(bson_iterator_key(it), key_ref) == 0)
 					strcpy(value_ref_found, bson_iterator_string(it));
 				if (strcmp(bson_iterator_key(it), key_needed) == 0)
 					strcpy(value_needed_found, bson_iterator_string(it));
 				break;
-			case bson_object:
-			case bson_array:
-				bson_iterator_init(&i, bson_iterator_value(it));
+			case BSON_OBJECT:
+			case BSON_ARRAY:
+				bson_iterator_subiterator(it, &i);
 				find_in_array(&i, key_ref, value_ref, key_needed, value_needed);
 				break;
 			default:
@@ -104,45 +104,38 @@ void find_in_array(bson_iterator *it, char *key_ref, char *value_ref, char *key_
 
 int find_radius_options(rlm_mongo_t *data, char *username, char *mac, char *password) 
 {
-	bson_buffer bb;
-	
 	bson query;
 	bson field;
 	bson result;
 	
-	bson_buffer_init(&bb);
+	bson_init(&query);
 	
-	bson_append_string(&bb, data->search_field, username);
+	bson_append_string(&query, data->search_field, username);
 	
 	if (strcmp(data->mac_field, "") != 0) {
-		bson_append_string(&bb, data->mac_field, mac);
+		bson_append_string(&query, data->mac_field, mac);
 	}
 	
 	if (strcmp(data->enable_field, "") != 0) {
-		bson_append_bool(&bb, data->enable_field, 1);
-	}	
-	
-	bson_from_buffer(&query, &bb);
-	bson_buffer_destroy(&bb);
+		bson_append_bool(&query, data->enable_field, 1);
+	}
+	bson_finish(&query);
 
 	bson_empty(&field);
-
 	bson_empty(&result);
 
-	MONGO_TRY{
-		if (mongo_find_one(conn, data->base, &query, &field, &result) == 0) {
-			return 0;
-		}
-	}MONGO_CATCH{
-		mongo_start(data);
+	int res = mongo_find_one(conn, data->base, &query, &field, &result);
+	bson_destroy(&query);
+
+	if ( res == MONGO_ERROR && conn->err == MONGO_IO_ERROR ) {
+		mongo_reconnect(conn);
 		return 0;
 	}
 	
 	bson_iterator it;
-	bson_iterator_init(&it, result.data);
+	bson_iterator_init(&it, &result);
 	
 	find_in_array(&it, data->username_field, username, data->password_field, password);
-	bson_destroy(&result);
 	return 1;
 }
 
@@ -220,13 +213,12 @@ static int mongo_authorize(void *instance, REQUEST *request)
 static int mongo_account(void *instance, REQUEST *request)
 {
 	rlm_mongo_t *data = (rlm_mongo_t *)instance;
-	bson b;
-	bson_buffer buf;
+	bson buf;
 	const char *attr;
 	char value[MAX_STRING_LEN+1];
 	VALUE_PAIR *vp = request->packet->vps;
 
-	bson_buffer_init(&buf);
+	bson_init(&buf);
 	bson_append_new_oid(&buf, "_id");
 
 	while (vp) {
@@ -249,17 +241,16 @@ static int mongo_account(void *instance, REQUEST *request)
 		}
 		vp = vp->next;
 	}
-	bson_from_buffer(&b, &buf);
+	bson_finish(&buf);
 
-	MONGO_TRY {
-		mongo_insert(conn, data->acct_base, &b);
-	} MONGO_CATCH {
+	int res = mongo_insert(conn, data->acct_base, &buf);
+	if (res != MONGO_OK) {
 		radlog(L_ERR, "mongo_insert failed");
 		return RLM_MODULE_FAIL;
 	}
 	RDEBUG("accounting record was inserted");
 
-	bson_destroy(&b);
+	bson_destroy(&buf);
 	return RLM_MODULE_OK;
 }
 
@@ -272,17 +263,17 @@ static int mongo_detach(void *instance)
 module_t rlm_mongo = {
 	RLM_MODULE_INIT,
 	"mongo",
-	RLM_TYPE_THREAD_SAFE,		/* type */
+	RLM_TYPE_THREAD_SAFE,	/* type */
 	mongo_instantiate,		/* instantiation */
 	mongo_detach,			/* detach */
 	{
-		NULL,			/* authentication */
+		NULL,			    /* authentication */
 		mongo_authorize,	/* authorization */
-		NULL,			/* preaccounting */
+		NULL,			    /* preaccounting */
 		mongo_account,		/* accounting */
-		NULL,			/* checksimul */
-		NULL,			/* pre-proxy */
-		NULL,			/* post-proxy */
-		NULL			/* post-auth */
+		NULL,			    /* checksimul */
+		NULL,			    /* pre-proxy */
+		NULL,			    /* post-proxy */
+		NULL			    /* post-auth */
 	},
 };

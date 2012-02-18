@@ -156,6 +156,11 @@ static int find_radius_options(rlm_mongo_t *data, const char *username, const ch
 	bson_bool_t res = mongo_find_one(conn, data->base, &query, &field, &result);
 	bson_destroy(&query);
 
+	if (res != MONGO_OK) {
+		DEBUG("Not found.\n");
+		return 0;
+	}
+
 	DEBUG("Result:\n");
 	if (debug_flag) {
 		bson_print(&result);

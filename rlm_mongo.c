@@ -35,7 +35,7 @@ RCSID("$Id$")
 typedef struct rlm_mongo_t {
 	char	*ip;
 	int		port;
-	
+
 	char	*base;
 	char	*acct_base;
 	char	*search_field;
@@ -46,8 +46,8 @@ typedef struct rlm_mongo_t {
 } rlm_mongo_t;
 
 static const CONF_PARSER module_config[] = {
-  { "port", PW_TYPE_INTEGER,    offsetof(rlm_mongo_t,port), NULL,   "27017" },
-  { "ip",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,ip), NULL,  "127.0.0.1"},
+  { "port", PW_TYPE_INTEGER, offsetof(rlm_mongo_t,port), NULL, "27017" },
+  { "ip",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,ip), NULL, "127.0.0.1"},
 
   { "base",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,base), NULL,  ""},
   { "acct_base",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,acct_base), NULL,  ""},
@@ -56,13 +56,13 @@ static const CONF_PARSER module_config[] = {
   { "password_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,password_field), NULL,  ""},
   { "mac_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,mac_field), NULL,  ""},
   { "enable_field",  PW_TYPE_STRING_PTR, offsetof(rlm_mongo_t,enable_field), NULL,  ""},
-  
+
   { NULL, -1, 0, NULL, NULL }		/* end the list */
 };
 
-mongo_connection conn[1];
+mongo conn[1];
 
-int mongo_start(rlm_mongo_t *data)
+static int mongo_start(rlm_mongo_t *data)
 {
 	if (mongo_connect(conn, data->ip, data->port)){
 	  radlog(L_ERR, "rlm_mongodb: Failed to connect");
@@ -73,76 +73,109 @@ int mongo_start(rlm_mongo_t *data)
 	return 1;
 }
 
-void find_in_array(bson_iterator *it, char *key_ref, char *value_ref, char *key_needed, char *value_needed) 
+/*
+static void find_in_array(bson_iterator *it, const char *key_ref, const char *value_ref, const char *key_needed, char *value_needed)
 {
 	char value_ref_found[MONGO_STRING_LENGTH];
 	char value_needed_found[MONGO_STRING_LENGTH];
 
 	bson_iterator i;
-	
+
 	while(bson_iterator_next(it)) {
 		switch(bson_iterator_type(it)){
-			case bson_string:
+			case BSON_STRING:
 				if (strcmp(bson_iterator_key(it), key_ref) == 0)
 					strcpy(value_ref_found, bson_iterator_string(it));
 				if (strcmp(bson_iterator_key(it), key_needed) == 0)
 					strcpy(value_needed_found, bson_iterator_string(it));
 				break;
-			case bson_object:
-			case bson_array:
-				bson_iterator_init(&i, bson_iterator_value(it));
+			case BSON_OBJECT:
+			case BSON_ARRAY:
+				bson_iterator_subiterator(it, &i);
 				find_in_array(&i, key_ref, value_ref, key_needed, value_needed);
 				break;
 			default:
 				break;
 		}
 	}
-	
+
 	if (strcmp(value_ref_found, value_ref) == 0)
 		strcpy(value_needed, value_needed_found);
 }
+*/
 
-int find_radius_options(rlm_mongo_t *data, char *username, char *mac, char *password) 
+static int find_password(bson_iterator *it, const char *password_key, char *password)
 {
-	bson_buffer bb;
-	
-	bson query;
-	bson field;
-	bson result;
-	
-	bson_buffer_init(&bb);
-	
-	bson_append_string(&bb, data->search_field, username);
-	
-	if (strcmp(data->mac_field, "") != 0) {
-		bson_append_string(&bb, data->mac_field, mac);
-	}
-	
-	if (strcmp(data->enable_field, "") != 0) {
-		bson_append_bool(&bb, data->enable_field, 1);
-	}	
-	
-	bson_from_buffer(&query, &bb);
-	bson_buffer_destroy(&bb);
+	bson_iterator i;
 
+	while(bson_iterator_next(it)) {
+		switch(bson_iterator_type(it)) {
+			case BSON_STRING:
+				if (strcmp(bson_iterator_key(it), password_key) == 0) {
+					strcpy(password, bson_iterator_string(it));
+					return 1;
+				}
+				break;
+			case BSON_OBJECT:
+				bson_iterator_subiterator(it, &i);
+				if (find_password(&i, password_key, password) == 1) {
+					return 1;
+				}
+				break;
+			default:
+				break;
+		}
+	}
+	return 0;
+}
+
+static int find_radius_options(rlm_mongo_t *data, const char *username, const char *mac, char *password)
+{
+	bson query, field, result;
+	bson_iterator it;
+
+	bson_init(&query);
 	bson_empty(&field);
 
-	bson_empty(&result);
+	bson_append_string(&query, data->search_field, username);
 
-	MONGO_TRY{
-		if (mongo_find_one(conn, data->base, &query, &field, &result) == 0) {
-			return 0;
-		}
-	}MONGO_CATCH{
-		mongo_start(data);
+	if (strcmp(data->mac_field, "") != 0) {
+		bson_append_string(&query, data->mac_field, mac);
+	}
+
+	if (strcmp(data->enable_field, "") != 0) {
+		bson_append_bool(&query, data->enable_field, 1);
+	}
+	bson_finish(&query);
+
+	DEBUG("Query:\n");
+	if (debug_flag) {
+		bson_print(&query);
+	}
+
+	bson_bool_t res = mongo_find_one(conn, data->base, &query, &field, &result);
+	bson_destroy(&query);
+
+	if (res != MONGO_OK) {
+		DEBUG("Not found.\n");
 		return 0;
 	}
-	
-	bson_iterator it;
-	bson_iterator_init(&it, result.data);
-	
-	find_in_array(&it, data->username_field, username, data->password_field, password);
-	bson_destroy(&result);
+
+	DEBUG("Result:\n");
+	if (debug_flag) {
+		bson_print(&result);
+	}
+
+	if ( res == MONGO_ERROR && conn->err == MONGO_IO_ERROR ) {
+		radlog(L_ERR, "rlm_mongo: mongo error, reconnecting");
+		mongo_reconnect(conn);
+		return 0;
+	}
+
+	bson_iterator_init(&it, &result);
+
+	// find_in_array(&it, data->username_field, username, data->password_field, password);
+	find_password(&it, data->password_field, password);
 	return 1;
 }
 
@@ -160,7 +193,7 @@ static int mongo_instantiate(CONF_SECTION *conf, void **instance)
 		free(data);
 		return -1;
 	}
-	
+
 	mongo_start(data);
 
 	*instance = data;
@@ -180,36 +213,35 @@ static void format_mac(char *in, char *out) {
 
 static int mongo_authorize(void *instance, REQUEST *request)
 {
-  if (request->username == NULL)
-  	return RLM_MODULE_NOOP;
-  	
-  rlm_mongo_t *data = (rlm_mongo_t *) instance;
-	
+	if (request->username == NULL) {
+		return RLM_MODULE_NOOP;
+	}
+
+	rlm_mongo_t *data = (rlm_mongo_t *) instance;
+
 	char password[MONGO_STRING_LENGTH] = "";
 	char mac[MONGO_STRING_LENGTH] = "";
-	
+
 	if (strcmp(data->mac_field, "") != 0) {
 		char mac_temp[MONGO_STRING_LENGTH] = "";
 		radius_xlat(mac_temp, MONGO_STRING_LENGTH, "%{Calling-Station-Id}", request, NULL);
 		format_mac(mac_temp, mac);
-  } 
-	
-	if (!find_radius_options(data, request->username->vp_strvalue, mac, password)) {
-		return RLM_MODULE_REJECT; 
 	}
-	
+
+	if (!find_radius_options(data, request->username->vp_strvalue, mac, password)) {
+		return RLM_MODULE_REJECT;
+	}
+
 	RDEBUG("Authorisation request by username -> \"%s\"\n", request->username->vp_strvalue);
 	RDEBUG("Password found in MongoDB -> \"%s\"\n\n", password);
-	
+
 	VALUE_PAIR *vp;
 
-	/* quiet the compiler */
-	instance = instance;
-	request = request;
-
  	vp = pairmake("Cleartext-Password", password, T_OP_SET);
- 	if (!vp) return RLM_MODULE_FAIL;
- 	
+	if (!vp) {
+		return RLM_MODULE_FAIL;
+	}
+
 	pairmove(&request->config_items, &vp);
 	pairfree(&vp);
 
@@ -220,13 +252,12 @@ static int mongo_authorize(void *instance, REQUEST *request)
 static int mongo_account(void *instance, REQUEST *request)
 {
 	rlm_mongo_t *data = (rlm_mongo_t *)instance;
-	bson b;
-	bson_buffer buf;
+	bson buf;
 	const char *attr;
 	char value[MAX_STRING_LEN+1];
 	VALUE_PAIR *vp = request->packet->vps;
 
-	bson_buffer_init(&buf);
+	bson_init(&buf);
 	bson_append_new_oid(&buf, "_id");
 
 	while (vp) {
@@ -249,17 +280,16 @@ static int mongo_account(void *instance, REQUEST *request)
 		}
 		vp = vp->next;
 	}
-	bson_from_buffer(&b, &buf);
+	bson_finish(&buf);
 
-	MONGO_TRY {
-		mongo_insert(conn, data->acct_base, &b);
-	} MONGO_CATCH {
+	int res = mongo_insert(conn, data->acct_base, &buf);
+	if (res != MONGO_OK) {
 		radlog(L_ERR, "mongo_insert failed");
 		return RLM_MODULE_FAIL;
 	}
 	RDEBUG("accounting record was inserted");
 
-	bson_destroy(&b);
+	bson_destroy(&buf);
 	return RLM_MODULE_OK;
 }
 
@@ -272,17 +302,17 @@ static int mongo_detach(void *instance)
 module_t rlm_mongo = {
 	RLM_MODULE_INIT,
 	"mongo",
-	RLM_TYPE_THREAD_SAFE,		/* type */
+	RLM_TYPE_THREAD_SAFE,	/* type */
 	mongo_instantiate,		/* instantiation */
 	mongo_detach,			/* detach */
 	{
-		NULL,			/* authentication */
+		NULL,			    /* authentication */
 		mongo_authorize,	/* authorization */
-		NULL,			/* preaccounting */
+		NULL,			    /* preaccounting */
 		mongo_account,		/* accounting */
-		NULL,			/* checksimul */
-		NULL,			/* pre-proxy */
-		NULL,			/* post-proxy */
-		NULL			/* post-auth */
+		NULL,			    /* checksimul */
+		NULL,			    /* pre-proxy */
+		NULL,			    /* post-proxy */
+		NULL			    /* post-auth */
 	},
 };

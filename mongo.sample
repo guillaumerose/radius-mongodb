@@ -1,0 +1,14 @@
+mongo {
+	port = "27017"
+	ip = "192.168.1.181"
+
+	base = 	"production.users"
+	username_field = "username"
+	password_field = "password"
+
+	# Check mac address (optionnal)
+	# mac_field = "mac"
+
+	# Check enable account (optionnal)
+	# enable_field = "activate"
+}

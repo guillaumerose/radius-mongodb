@@ -9,21 +9,21 @@ How it works ?
 Each time your radius receives a authorization request, FreeRADIUS will check user credentials stored in MongoDB.
 
 The request looks like :
-`
-{
-	"mac": "00-11-22-33-44-55",
-	"username": "john"
-}
-`
+
+	{
+		"mac": "00-11-22-33-44-55",
+		"username": "john"
+	}
+
 
 If a document matches, MongoDB will return :
-`
-{
-	.. some data ..
-	"password": "secret"
-	.. some data ..
-}
-`
+
+	{
+		.. some data ..
+		"password": "secret"
+		.. some data ..
+	}
+
 
 FreeRADIUS will now compare given password and MongoDB password (only cleartext password).
 
@@ -44,34 +44,30 @@ Install
 Configuration
 -------------
 
-<code>
-mongo {
-	port = "27017"
-	ip = "192.168.1.181"
+	mongo {
+		port = "27017"
+		ip = "192.168.1.181"
 
-	base = 	"production.users"
-	username_field = "username"
-	password_field = "password"
+		base = 	"production.users"
+		username_field = "username"
+		password_field = "password"
 
-	# Check mac address (optionnal)
-	# mac_field = "mac"
+		# Check mac address (optionnal)
+		# mac_field = "mac"
 
-	# Check enable account (optionnal)
-	# enable_field = "activate"
-}
-</code>
+		# Check enable account (optionnal)
+		# enable_field = "activate"
+	}
+
 
 Tips
 ----
 
-If you use rlm_mongo in inner-tunnel and mac filter, ensure you have this in eap.conf
-
-`copy_request_to_tunnel = yes`
+If you use rlm_mongo in inner-tunnel and mac filter, ensure you have this in eap.conf : `copy_request_to_tunnel = yes`
 
 If you want to use NTLM password, only replace `Cleartext-Password` by `NT-Password` in rlm_mongo.c
 
 Credits
 -------
 
-Guillaume Rose
-Roman Shterenzon
+Guillaume Rose, Roman Shterenzon

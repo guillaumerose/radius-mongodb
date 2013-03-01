@@ -117,6 +117,7 @@ static int find_password(bson_iterator *it, const char *password_key, char *pass
 				}
 				break;
 			case BSON_OBJECT:
+			case BSON_ARRAY:
 				bson_iterator_subiterator(it, &i);
 				if (find_password(&i, password_key, password) == 1) {
 					return 1;

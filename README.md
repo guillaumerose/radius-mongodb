@@ -1,7 +1,7 @@
 MongoDB module for FreeRADIUS
 =============================
 
-This module allow you to use MongoDB as FreeRADIUS backend (instead of a LDAP).
+This module allow you to use MongoDB as FreeRADIUS backend (instead of a LDAP). Please consider using other module since this one is not maintained anymore.
 
 How it works ?
 --------------
